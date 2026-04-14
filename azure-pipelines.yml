@@ -1,0 +1,226 @@
+# ============================================================
+# infra-pipeline.yml — EpicBook Capstone
+#
+# Organization:  https://dev.azure.com/varungopal286
+# Project:       EpicBook
+# Agent Pool:    linux-hosted-agent
+# Repo:          github.com/varungopal286/infra-epicbook
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: linux-hosted-agent
+
+variables:
+  - group: epicbook-secrets
+  - name: TF_VERSION
+    value: '1.7.5'
+  - name: SUBSCRIPTION_ID
+    value: '01d97f29-a593-437a-afad-7bef5a9d03f3'
+
+stages:
+
+# ------------------------------------------------------------
+# STAGE 1 — VALIDATE
+# ------------------------------------------------------------
+  - stage: Validate
+    displayName: 'Validate'
+    jobs:
+      - job: ValidateJob
+        displayName: 'Install Terraform and Validate Config'
+        steps:
+
+          - checkout: self
+            clean: true
+
+          - task: DownloadSecureFile@1
+            displayName: 'Download SSH Public Key'
+            name: sshPublicKey
+            inputs:
+              secureFile: 'epicbook-vm.pub'
+
+          - script: |
+              wget -q https://releases.hashicorp.com/terraform/$(TF_VERSION)/terraform_$(TF_VERSION)_linux_amd64.zip
+              unzip -o terraform_$(TF_VERSION)_linux_amd64.zip
+              sudo mv terraform /usr/local/bin/terraform
+              terraform version
+            displayName: 'Install Terraform'
+
+          - script: |
+              export ARM_CLIENT_ID=$(ARM_CLIENT_ID)
+              export ARM_CLIENT_SECRET=$(ARM_CLIENT_SECRET)
+              export ARM_TENANT_ID=$(ARM_TENANT_ID)
+              export ARM_SUBSCRIPTION_ID=$(SUBSCRIPTION_ID)
+
+              terraform init -backend=false
+              terraform validate
+              echo "Terraform configuration is valid"
+            displayName: 'Terraform Validate'
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              ARM_SUBSCRIPTION_ID: $(SUBSCRIPTION_ID)
+
+# ------------------------------------------------------------
+# STAGE 2 — PLAN
+# ------------------------------------------------------------
+  - stage: Plan
+    displayName: 'Plan'
+    dependsOn: Validate
+    jobs:
+      - job: PlanJob
+        displayName: 'Terraform Init and Plan'
+        steps:
+
+          - checkout: self
+            clean: true
+
+          - task: DownloadSecureFile@1
+            displayName: 'Download SSH Public Key'
+            name: sshPublicKey
+            inputs:
+              secureFile: 'epicbook-vm.pub'
+
+          - script: |
+              wget -q https://releases.hashicorp.com/terraform/$(TF_VERSION)/terraform_$(TF_VERSION)_linux_amd64.zip
+              unzip -o terraform_$(TF_VERSION)_linux_amd64.zip
+              sudo mv terraform /usr/local/bin/terraform
+              terraform version
+            displayName: 'Install Terraform'
+
+          - script: |
+              SSH_PUBLIC_KEY=$(cat $(sshPublicKey.secureFilePath))
+              echo "##vso[task.setvariable variable=SSH_PUBLIC_KEY]$SSH_PUBLIC_KEY"
+              echo "SSH public key loaded"
+            displayName: 'Load SSH Public Key Content'
+
+          - script: |
+              terraform init \
+                -backend-config="resource_group_name=azure-devops" \
+                -backend-config="storage_account_name=epicbooktfstatevg" \
+                -backend-config="container_name=tfstate" \
+                -backend-config="key=epicbook.tfstate" \
+                -backend-config="client_id=$(ARM_CLIENT_ID)" \
+                -backend-config="client_secret=$(ARM_CLIENT_SECRET)" \
+                -backend-config="tenant_id=$(ARM_TENANT_ID)" \
+                -backend-config="subscription_id=$(SUBSCRIPTION_ID)"
+            displayName: 'Terraform Init'
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              ARM_SUBSCRIPTION_ID: $(SUBSCRIPTION_ID)
+
+          - script: |
+              terraform plan \
+                -var="subscription_id=$(SUBSCRIPTION_ID)" \
+                -var="ssh_public_key=$(SSH_PUBLIC_KEY)" \
+                -var="db_password=$(db_password)" \
+                -out=tfplan
+
+              echo "Terraform plan completed successfully"
+            displayName: 'Terraform Plan'
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              ARM_SUBSCRIPTION_ID: $(SUBSCRIPTION_ID)
+
+# ------------------------------------------------------------
+# STAGE 3 — APPLY
+# ------------------------------------------------------------
+  - stage: Apply
+    displayName: 'Apply'
+    dependsOn: Plan
+    jobs:
+      - job: ApplyJob
+        displayName: 'Terraform Apply and Publish Outputs'
+        steps:
+
+          - checkout: self
+            clean: true
+
+          - task: DownloadSecureFile@1
+            displayName: 'Download SSH Public Key'
+            name: sshPublicKey
+            inputs:
+              secureFile: 'epicbook-vm.pub'
+
+          - script: |
+              wget -q https://releases.hashicorp.com/terraform/$(TF_VERSION)/terraform_$(TF_VERSION)_linux_amd64.zip
+              unzip -o terraform_$(TF_VERSION)_linux_amd64.zip
+              sudo mv terraform /usr/local/bin/terraform
+              terraform version
+            displayName: 'Install Terraform'
+
+          - script: |
+              SSH_PUBLIC_KEY=$(cat $(sshPublicKey.secureFilePath))
+              echo "##vso[task.setvariable variable=SSH_PUBLIC_KEY]$SSH_PUBLIC_KEY"
+              echo "SSH public key loaded"
+            displayName: 'Load SSH Public Key Content'
+
+          - script: |
+              terraform init \
+                -backend-config="resource_group_name=azure-devops" \
+                -backend-config="storage_account_name=epicbooktfstatevg" \
+                -backend-config="container_name=tfstate" \
+                -backend-config="key=epicbook.tfstate" \
+                -backend-config="client_id=$(ARM_CLIENT_ID)" \
+                -backend-config="client_secret=$(ARM_CLIENT_SECRET)" \
+                -backend-config="tenant_id=$(ARM_TENANT_ID)" \
+                -backend-config="subscription_id=$(SUBSCRIPTION_ID)"
+            displayName: 'Terraform Init'
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              ARM_SUBSCRIPTION_ID: $(SUBSCRIPTION_ID)
+
+          - script: |
+              terraform apply \
+                -var="subscription_id=$(SUBSCRIPTION_ID)" \
+                -var="ssh_public_key=$(SSH_PUBLIC_KEY)" \
+                -var="db_password=$(db_password)" \
+                -parallelism=3 \
+                -auto-approve
+
+              echo "Terraform apply completed successfully"
+            displayName: 'Terraform Apply'
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              ARM_SUBSCRIPTION_ID: $(SUBSCRIPTION_ID)
+
+          - script: |
+              mkdir -p $(Build.ArtifactStagingDirectory)/infra-outputs
+
+              FRONTEND_IP=$(terraform output -raw frontend_public_ip)
+              BACKEND_IP=$(terraform output -raw backend_public_ip)
+
+              echo "FRONTEND_IP=$FRONTEND_IP" > $(Build.ArtifactStagingDirectory)/infra-outputs/vm_ips.txt
+              echo "BACKEND_IP=$BACKEND_IP" >> $(Build.ArtifactStagingDirectory)/infra-outputs/vm_ips.txt
+
+              echo "============================================"
+              echo "  INFRASTRUCTURE CREATED SUCCESSFULLY"
+              echo "============================================"
+              echo "EpicBook VM : http://$FRONTEND_IP"
+              echo "============================================"
+            displayName: 'Capture Terraform Outputs'
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              ARM_SUBSCRIPTION_ID: $(SUBSCRIPTION_ID)
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish VM IPs Artifact'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/infra-outputs'
+              artifact: 'infra-outputs'
+              publishLocation: 'pipeline'

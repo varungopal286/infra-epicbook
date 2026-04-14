@@ -1,0 +1,18 @@
+# ============================================================
+# terraform.tfvars.example — EpicBook Capstone
+#
+# Copy this file to terraform.tfvars and fill in your values.
+# Never commit terraform.tfvars to Git — it contains secrets.
+# In the pipeline, these values are passed as environment
+# variables via the Service Connection and Variable Group.
+# ============================================================
+
+subscription_id = "01d97f29-a593-437a-afad-7bef5a9d03f3"
+resource_group  = "epicbook-rg"
+location        = "canadacentral"
+frontend_vm_size = "Standard_B2s_v2"
+backend_vm_size  = "Standard_B2s_v2"
+location         = "eastus"
+admin_username  = "azureuser"
+ssh_public_key  = "ssh-rsa AAAA... your public key content here"
+db_password     = "YourStrongPassword@2024!"
